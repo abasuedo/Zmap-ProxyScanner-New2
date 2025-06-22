@@ -1,0 +1,46 @@
+name: Proxy Scanner
+
+on:
+  workflow_dispatch:  # Cho phép chạy thủ công
+  schedule:
+    - cron: '0 */6 * * *'  # Chạy mỗi 6 giờ (tùy chọn)
+
+jobs:
+  scan-proxies:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y zmap
+        
+    - name: Build proxy scanner
+      run: |
+        go mod tidy
+        go build -o ZmapProxyScanner
+        
+    - name: Run proxy scan (limited scope)
+      run: |
+        # Tạo file IP test thay vì quét toàn bộ Internet
+        echo "8.8.8.8" > test_ips.txt
+        echo "1.1.1.1" >> test_ips.txt
+        echo "208.67.222.222" >> test_ips.txt
+        
+        # Chạy scanner với file input
+        timeout 300 ./ZmapProxyScanner -p 8080 -in test_ips.txt -o proxy_results.txt || true
+        
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: proxy-results
+        path: proxy_results.txt
+        retention-days: 7
