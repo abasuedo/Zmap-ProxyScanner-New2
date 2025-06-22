@@ -1,0 +1,31 @@
+name: Test Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+        
+    - name: Build
+      run: |
+        go mod tidy
+        go build -o ZmapProxyScanner
+        
+    - name: Test basic functionality
+      run: |
+        echo "127.0.0.1:8080" > test.txt
+        timeout 30 ./ZmapProxyScanner -in test.txt -o output.txt || true
+        ls -la output.txt
