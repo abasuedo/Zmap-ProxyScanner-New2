@@ -1,0 +1,110 @@
+name: Zmap Proxy Scanner (Direct Connection)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'
+
+jobs:
+  scan-proxies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y zmap build-essential
+        
+    - name: Build ZmapProxyScanner
+      run: |
+        go mod tidy
+        go build -o ZmapProxyScanner
+        chmod +x ZmapProxyScanner
+        
+    - name: Create IP ranges file
+      run: |
+        cat > ip_ranges.txt << EOF
+        15.0.0.0/4
+        6.0.0.0/6
+        32.0.0.0/6
+        11.0.0.0/6
+        28.0.0.0/6
+        54.224.0.0/6
+        214.0.0.0/6
+        3.0.0.0/7
+        EOF
+        
+    - name: Update config.json
+      run: |
+        cat > config.json << EOF
+        {
+          "check-site": "https://httpbin.org/ip",
+          "proxy-type": "http",
+          "http_threads": 100,
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Ubuntu) Gecko/20100101 Firefox/120.0",
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+          },
+          "print_ips": {
+            "enabled": true,
+            "display-ip-info": false
+          },
+          "timeout": {
+            "http_timeout": 10,
+            "socks4_timeout": 10,
+            "socks5_timeout": 10
+          }
+        }
+        EOF
+        
+    - name: Run Zmap Proxy Scanner (Direct Connection)
+      run: |
+        # Không cấu hình proxy - để GitHub Actions kết nối trực tiếp
+        # Function SendProxyToServer sẽ gửi trực tiếp lên trandainghia.forum
+        
+        timeout 90m sudo zmap -p 8080 --rate=8000 \
+          --whitelist-file=ip_ranges.txt \
+          --output-fields=saddr -o - | \
+          ./ZmapProxyScanner -p 8080 -o proxy_8080.txt || true
+          
+        if [ -f proxy_8080.txt ]; then
+          echo "Scan completed successfully!"
+          echo "Number of proxies found: $(wc -l < proxy_8080.txt)"
+          echo "Sample proxies:"
+          head -5 proxy_8080.txt
+        else
+          echo "No proxy file generated"
+        fi
+        
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: proxy-results-${{ github.run_number }}
+        path: proxy_8080.txt
+        retention-days: 7
+        
+    - name: Summary
+      if: always()
+      run: |
+        echo "## Proxy Scanner Results" >> $GITHUB_STEP_SUMMARY
+        echo "- **Run**: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f proxy_8080.txt ]; then
+          COUNT=$(wc -l < proxy_8080.txt)
+          echo "- **Found**: $COUNT proxies" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auto-sent to trandainghia.forum**: ✅ Enabled" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Status**: ❌ No proxies found" >> $GITHUB_STEP_SUMMARY
+        fi
